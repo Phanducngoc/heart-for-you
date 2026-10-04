@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Particle Heart + Heart QR</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030305;color:white;font-family:Arial,Helvetica,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+#app{position:relative;width:min(100vw,56.25vh);height:100vh;max-height:177.78vw;background:#020205;overflow:hidden}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+#stage{z-index:1}
+#fx{z-index:2;pointer-events:none}
+.top{position:absolute;z-index:5;top:18px;left:18px;right:18px;display:flex;justify-content:space-between;align-items:center}
+.badge{font-weight:800;font-size:12px;letter-spacing:.5px;padding:7px 10px;border:1px solid rgba(255,255,255,.15);border-radius:20px;background:rgba(0,0,0,.35);backdrop-filter:blur(8px)}
+.controls{position:absolute;z-index:6;left:12px;right:12px;bottom:12px;padding:12px;border-radius:18px;background:rgba(10,10,15,.76);backdrop-filter:blur(15px);border:1px solid rgba(255,255,255,.12)}
+.row{display:flex;gap:8px;margin-bottom:8px}
+button,input,select{border:0;border-radius:10px;padding:9px 10px;font-size:12px}
+button{cursor:pointer;background:#fff;color:#000;font-weight:700}
+button.secondary{background:#1a1a20;color:#fff;border:1px solid #333}
+input{flex:1;background:#111;color:#fff;border:1px solid #333;outline:none}
+.small{font-size:10px;color:#aaa;line-height:1.35}
+#qrWrap{position:absolute;z-index:3;left:50%;top:53%;transform:translate(-50%,-50%);width:65%;aspect-ratio:1;display:none;align-items:center;justify-content:center}
+#qrBox{width:78%;aspect-ratio:1;background:#fff;padding:8%;border-radius:10px;box-shadow:0 0 35px rgba(130,220,255,.45)}
+#qr{width:100%;height:100%;display:block}
+#heartOutline{position:absolute;inset:-8%;filter:drop-shadow(0 0 12px #8eeaff)}
+#heartOutline svg{width:100%;height:100%;overflow:visible}
+#heartOutline path{fill:none;stroke:#bdf4ff;stroke-width:2;opacity:.9}
+.title{position:absolute;z-index:4;left:0;right:0;bottom:31%;text-align:center;font-size:38px;font-weight:900;font-style:italic;color:#ffe900;text-shadow:2px 2px 0 #000,0 0 16px rgba(255,230,0,.35);display:none}
+#hint{position:absolute;z-index:4;left:0;right:0;top:8%;text-align:center;font-size:12px;color:rgba(255,255,255,.65);display:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="stage"></canvas>
+  <canvas id="fx"></canvas>
+
+  <div class="top">
+    <div class="badge">❤️ PARTICLE HEART</div>
+    <div class="badge" id="fps">LIVE</div>
+  </div>
+
+  <div id="hint">IT • YOUR MESSAGE</div>
+  <div class="title" id="itText">IT</div>
+
+  <div id="qrWrap">
+    <div id="heartOutline">
+      <svg viewBox="0 0 100 100">
+        <path d="M50 88 C43 80 14 62 9 42 C4 22 19 10 34 14 C42 16 48 22 50 29 C52 22 58 16 66 14 C81 10 96 22 91 42 C86 62 57 80 50 88Z"/>
+      </svg>
+    </div>
+    <div id="qrBox"><canvas id="qr"></canvas></div>
+  </div>
+
+  <div class="controls">
+    <div class="row">
+      <button id="heartBtn">❤️ Trái tim</button>
+      <button id="qrBtn" class="secondary">▣ QR trái tim</button>
+      <button id="burstBtn" class="secondary">✨ Burst</button>
+    </div>
+    <div class="row">
+      <input id="qrText" value="https://example.com" placeholder="Nội dung QR...">
+      <button id="makeQr">Tạo QR</button>
+    </div>
+    <div class="row">
+      <input id="label" value="IT" placeholder="Chữ bên dưới">
+      <select id="speed">
+        <option value="0.5">Chậm</option>
+        <option value="1" selected>Bình thường</option>
+        <option value="1.7">Nhanh</option>
+      </select>
+    </div>
+    <div class="small">Mẹo: mở toàn màn hình (F11) để quay màn hình. Hiệu ứng được tối ưu theo khung dọc 9:16 giống Reels.</div>
+  </div>
+</div>
+
+<!-- QRCode.js: cần Internet khi mở file -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const app=document.getElementById('app');
+const canvas=document.getElementById('stage');
+const fx=document.getElementById('fx');
+const ctx=canvas.getContext('2d');
+const fctx=fx.getContext('2d');
+let W,H,DPR;
+let particles=[];
+let mode='heart';
+let t=0, speed=1, burst=0;
+
+function resize(){
+  DPR=Math.min(devicePixelRatio||1,2);
+  W=app.clientWidth; H=app.clientHeight;
+  canvas.width=fx.width=W*DPR; canvas.height=fx.height=H*DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  fctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize',resize); resize();
+
+function heartPoint(){
+  let a=Math.random()*Math.PI*2;
+  let x=16*Math.sin(a)**3;
+  let y=13*Math.cos(a)-5*Math.cos(2*a)-2*Math.cos(3*a)-Math.cos(4*a);
+  let scale=Math.min(W,H)*0.018;
+  return {x:W/2+x*scale,y:H*0.43-y*scale};
+}
+
+function makeParticles(n=2600){
+  particles=[];
+  for(let i=0;i<n;i++){
+    let p=heartPoint();
+    let ang=Math.random()*Math.PI*2, r=Math.random();
+    particles.push({
+      x:Math.random()*W,y:Math.random()*H,
+      tx:p.x,ty:p.y,
+      vx:0,vy:0,
+      size:Math.random()*1.7+.35,
+      phase:Math.random()*Math.PI*2,
+      drift:(Math.random()-.5)*.7,
+      alpha:Math.random()*.7+.25,
+      speed:.018+Math.random()*.035,
+      outside:Math.random()<.13
+    });
+  }
+}
+makeParticles();
+
+function drawHeartBackground(){
+  ctx.fillStyle='#020205';
+  ctx.fillRect(0,0,W,H);
+  let g=ctx.createRadialGradient(W/2,H*.42,10,W/2,H*.42,Math.min(W,H)*.48);
+  g.addColorStop(0,'rgba(90,180,255,.055)');
+  g.addColorStop(.5,'rgba(20,70,130,.025)');
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+}
+
+function animate(){
+  t+=.016*speed;
+  drawHeartBackground();
+  fctx.clearRect(0,0,W,H);
+
+  if(mode==='heart'){
+    document.getElementById('qrWrap').style.display='none';
+    document.getElementById('itText').style.display='block';
+    document.getElementById('hint').style.display='none';
+
+    for(const p of particles){
+      let wob=Math.sin(t*1.8+p.phase)*1.4;
+      let tx=p.tx+wob, ty=p.ty+Math.cos(t*1.5+p.phase)*1.4;
+      if(p.outside){
+        tx += Math.cos(p.phase)*Math.sin(t*.7+p.phase)*45;
+        ty += Math.sin(p.phase)*Math.cos(t*.7+p.phase)*45;
+      }
+      p.x+=(tx-p.x)*p.speed*speed;
+      p.y+=(ty-p.y)*p.speed*speed;
+      let tw=.65+.35*Math.sin(t*3+p.phase);
+      fctx.beginPath();
+      fctx.fillStyle=`rgba(205,242,255,${p.alpha*tw})`;
+      fctx.shadowBlur=4;
+      fctx.shadowColor='rgba(130,220,255,.8)';
+      fctx.arc(p.x,p.y,p.size,0,Math.PI*2);fctx.fill();
+    }
+    fctx.shadowBlur=0;
+    if(burst>0){
+      fctx.fillStyle=`rgba(160,235,255,${burst*.025})`;
+      fctx.fillRect(0,0,W,H);
+      burst-=.8*speed;
+    }
+  }
+  requestAnimationFrame(animate);
+}
+animate();
+
+document.getElementById('heartBtn').onclick=()=>{mode='heart';makeParticles();burst=40};
+document.getElementById('qrBtn').onclick=()=>{
+  mode='qr';
+  document.getElementById('qrWrap').style.display='flex';
+  document.getElementById('itText').style.display='none';
+  document.getElementById('hint').style.display='block';
+  makeQR();
+};
+document.getElementById('burstBtn').onclick=()=>{mode='heart';burst=100;makeParticles()};
+document.getElementById('speed').onchange=e=>speed=+e.target.value;
+document.getElementById('label').oninput=e=>document.getElementById('itText').textContent=e.target.value;
+
+function makeQR(){
+  const target=document.getElementById('qr');
+  target.innerHTML='';
+  const holder=document.createElement('div');
+  holder.id='qrcodeTemp';
+  holder.style.position='absolute';
+  holder.style.left='-9999px';
+  app.appendChild(holder);
+  new QRCode(holder,{
+    text:document.getElementById('qrText').value||'https://example.com',
+    width:512,height:512,
+    correctLevel:QRCode.CorrectLevel.H
+  });
+  setTimeout(()=>{
+    const img=holder.querySelector('img');
+    const c=holder.querySelector('canvas');
+    const qctx=target.getContext('2d');
+    target.width=512;target.height=512;
+    qctx.fillStyle='#fff';qctx.fillRect(0,0,512,512);
+    if(img && img.complete) qctx.drawImage(img,0,0,512,512);
+    else if(c) qctx.drawImage(c,0,0,512,512);
+    holder.remove();
+    // Add a soft heart-shaped luminous border around the QR.
+    qctx.save();
+    qctx.globalCompositeOperation='destination-over';
+    qctx.fillStyle='#fff';
+    qctx.restore();
+  },80);
+}
+document.getElementById('makeQr').onclick=makeQR;
+makeQR();
+</script>
+</body>
+</html>
